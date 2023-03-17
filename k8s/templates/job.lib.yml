@@ -1,0 +1,22 @@
+#@ load("@ytt:data", "data")
+#@ load("@ytt:template", "template")
+#@ load("utils.star", "utils")
+#@ load("deploy.lib.yml", "getPodSpec")
+
+#@ def getJobSpec():
+#@ if/end data.values.jobAdditionalConfig:
+_: #@ template.replace(data.values.jobAdditionalConfig)
+#@ if/end data.values.jobAdditionalConfigByEnvironment and data.values.jobAdditionalConfigByEnvironment[data.values.environment]:
+_: #@ template.replace(data.values.jobAdditionalConfigByEnvironment[data.values.environment])
+template: #@ getPodSpec()
+#@ end
+
+#@ def getJob():
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: #@ utils.jobName()
+  labels: #@ utils.defaultLabels("job")
+  namespace: #@ utils.namespaceName()
+spec: #@ getJobSpec()
+#@ end

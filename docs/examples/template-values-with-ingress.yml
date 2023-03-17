@@ -1,0 +1,62 @@
+#@data/values
+---
+projectName: bpt-node
+resourceType: Deploy
+hasIngress: True
+useHttp: True
+productionDomain: bpt-node.binpar.cloud
+ingressAnnotations:
+  nginx.ingress.kubernetes.io/proxy-body-size: 256m
+ingressRules:
+  - host: test-rule.hostname.com
+    http:
+      paths:
+        - backend:
+            serviceName: service-1
+            servicePort: 80
+          path: /(ws.*)
+          pathType: ImplementationSpecific
+  - host: test-rule.hostname.com
+    http:
+      paths:
+        - backend:
+            serviceName: service-2
+            servicePort: 80
+          path: /(.*)
+          pathType: ImplementationSpecific
+ingressHosts:
+  - test-rule.hostname.com
+  - "*.hostname.com"
+additionalDeployEnvSources:
+  - configMapRef:
+      name: config-1
+  - configMapRef:
+      name: config-2
+  - configMapRef:
+      name: config-2
+  - secretRef:
+      name: bi-productive-prod-back
+      optional: false
+configMaps:
+  - name: config-1
+    data:
+      PROP_1: 'asd'
+      PROP_2: 'bcv'
+  - name: config-2
+    data:
+      PROP_2_1: '2_asd'
+      PROP_2_2: '2_bcv'
+issuerSolvers:
+  - http01:
+      ingress:
+        class: nginx
+  - selector:
+      dnsZones:
+        - "hostname.com"
+    dns01:
+      route53:
+        region: eu-west-1
+        accessKeyID: XXXXXXXXXXXXXXXX
+        secretAccessKeySecretRef:
+          name: route53-dns-access
+          key: SECRET_KEY

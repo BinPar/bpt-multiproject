@@ -1,0 +1,78 @@
+#@data/values
+---
+projectName: bpt-node-web
+productionDomain: bpt-node-web.binpar.cloud
+useOnlyAdditionalIngresses: True
+useOnlyAdditionalIssuers: True
+additionalIngresses:
+  - name: axon-root
+    environment: release
+    rules:
+      - host: axon.es
+        http:
+          paths:
+          - backend:
+              service:
+                name: service-axon-dos-web
+                port:
+                  number: 80
+            path: /(.*)
+            pathType: ImplementationSpecific
+    tls:
+      - hosts:
+        - axon.es
+        - www.axon.es
+        secretName: cert-axon-es
+  - name: axon-www-redirect
+    environment: release
+    annotations:
+      cert-manager.io/issuer:
+      nginx.ingress.kubernetes.io/configuration-snippet: |
+        rewrite ^/(.*)$ https://axon.es/$1 permanent;
+    rules:
+      - host: www.axon.es
+        http:
+          paths:
+          - backend:
+              service:
+                name: service-axon-dos-web
+                port:
+                  number: 80
+            path: /(.*)
+            pathType: ImplementationSpecific
+    tls:
+      - hosts:
+        - www.axon.es
+        secretName: cert-axon-es
+  - name: common-axon
+    rules:
+      - host: axon.binpar.cloud
+        http:
+          paths:
+          - backend:
+              service:
+                name: service-axon-dos-web
+                port:
+                  number: 80
+            path: /(.*)
+            pathType: ImplementationSpecific
+    tls:
+      - hosts:
+        - axon.binpar.cloud
+        secretName: cert-axon-binpar-cloud
+additionalIssuers:
+  - name: test-iss
+    environment: release
+    privateKeySecretRef:
+      name: test
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+  - name: test-dos
+    privateKeySecretRef:
+      name: test
+    solvers:
+      - http01:
+          ingress:
+            class: nginx

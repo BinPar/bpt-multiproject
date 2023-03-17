@@ -1,0 +1,46 @@
+#@ load("@ytt:data", "data")
+#@ load("namespace.lib.yml", "getNamespace")
+#@ load("deploy.lib.yml", "getDeploy")
+#@ load("job.lib.yml", "getJob")
+#@ load("cron-job.lib.yml", "getCronJob")
+#@ load("service.lib.yml", "getService")
+#@ load("ingress.lib.yml", "getIngress")
+#@ load("issuer.lib.yml", "getIssuer")
+#@ load("ingress.lib.yml", "getIngress", "getAdditionalIngresses")
+#@ load("issuer.lib.yml", "getIssuer", "getAdditionalIssuers")
+#@ load("volumes.lib.yml", "getVolumeStorages", "getVolumeClaims")
+#@ load("conf-map.lib.yml", "getDefaultConfigMap", "getValuesConfigMap")
+
+--- #@ getNamespace()
+#@ if data.values.hasIngress:
+#@   if/end not data.values.useOnlyAdditionalIssuers:
+---   #@ getIssuer()
+#@   if/end not data.values.useOnlyAdditionalIngresses:
+---   #@ getIngress()
+#@ end
+#@ if data.values.useHttp:
+--- #@ getService()
+#@ end
+#@ volumeStorages = getVolumeStorages()
+#@ for/end volumeStorage in volumeStorages:
+--- #@ volumeStorage
+#@ volumeClaims = getVolumeClaims()
+#@ for/end volumeClaim in volumeClaims:
+--- #@ volumeClaim
+#@ if data.values.resourceType == "Deploy":
+--- #@ getDeploy()
+#@ elif data.values.resourceType == "Job":
+--- #@ getJob()
+#@ elif data.values.resourceType == "CronJob":
+--- #@ getCronJob()
+#@ end
+--- #@ getDefaultConfigMap()
+#@ ingresses = getAdditionalIngresses()
+#@ for/end ingress in ingresses:
+--- #@ ingress
+#@ issuers = getAdditionalIssuers()
+#@ for/end issuer in issuers:
+--- #@ issuer
+#@ configs = getValuesConfigMap()
+#@ for/end config in configs:
+--- #@ config

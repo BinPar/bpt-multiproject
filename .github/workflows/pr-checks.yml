@@ -1,0 +1,168 @@
+name: Code quality and unit testing
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+jobs:
+  setup_node_dependencies:
+    name: Setup Node and dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo and setup
+        uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+      - name: Cache node_modules
+        uses: actions/cache@v2
+        id: cache-nm
+        with:
+          path: ./node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+      - name: Cache dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        uses: actions/cache@v2
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-
+      - run: npm ci
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+  you_shall_not_pass:
+    name: You shall not pass!
+    needs: [setup_node_dependencies]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo and setup
+        uses: actions/checkout@v2
+      - name: Check YSNP!
+        run: |
+          if [ -n "$(grep -Rl --include=\*.{ts,tsx,js,jsx} "// YSNP:" .)" ]; then
+              echo "::error::YOU SHALL NOT PASS!!"
+              exit 1
+          fi
+  npm_audit:
+    name: NPM Audit
+    needs: [setup_node_dependencies]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo and setup
+        uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+      - name: Cache node_modules
+        uses: actions/cache@v2
+        with:
+          path: ./node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+      - name: NPM Audit
+        run: npm audit --audit-level=high
+  lint:
+    name: Lint code
+    needs: [setup_node_dependencies]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo and setup
+        uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+      - name: Cache node_modules
+        uses: actions/cache@v2
+        with:
+          path: ./node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+      - name: Lint
+        run: npm run lint
+  type_check:
+    name: Type check
+    needs: [setup_node_dependencies]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo and setup
+        uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+      - name: Cache node_modules
+        uses: actions/cache@v2
+        with:
+          path: ./node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+      - name: Type check
+        run: npm run typeCheck
+  run_tests:
+    name: Run tests
+    needs: [setup_node_dependencies]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo and setup
+        uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+      - name: Cache node_modules
+        uses: actions/cache@v2
+        with:
+          path: ./node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+      - name: Run tests
+        run: npm test
+  check_k8s_templates:
+    name: Check k8s templates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo and setup
+        uses: actions/checkout@v2
+      - uses: vmware-tanzu/carvel-setup-action@v1
+        with:
+          only: ytt
+          ytt: '0.36.0'
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compile k8s templates
+        run: |
+          cd ./k8s/templates
+          ./compile-templates.sh "test pre-release release"
+  notify_discord:
+    name: Notify discord
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [you_shall_not_pass, npm_audit, lint, type_check, run_tests, check_k8s_templates]
+    continue-on-error: true
+    steps:
+      - id: get-options
+        env:
+          STATUS_ARRAY: ${{ join(needs.*.result, ' ') }}
+        run: |
+          status='success'
+          for inputStatus in $STATUS_ARRAY
+          do
+            if [ "$inputStatus" == 'failure' ]
+            then
+              status="$inputStatus"
+              break
+            elif [ "$inputStatus" == 'cancelled' ]
+            then
+              status=$inputStatus
+            elif [ "$inputStatus" == 'skipped' ]
+            then
+              status='cancelled'
+            fi
+          done
+          echo "::set-output name=status::$status"
+          avatar="${{ secrets.DISCORD_AVATAR_URL }}"
+          if [ "$status" != 'success' ]
+          then
+            avatar="${{ secrets.DISCORD_AVATAR_URL_ERROR }}"
+          fi
+          echo "::set-output name=avatar::$avatar"
+      - name: Notify PR checks status
+        uses: sarisia/actions-status-discord@v1
+        with:
+          status: ${{ steps.get-options.outputs.status }}
+          title: Pull Request Checks
+          description: |
+            Más info en el futuro...
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          avatar_url: ${{ steps.get-options.outputs.avatar }}
+          username: "BinFlow CI / CD"

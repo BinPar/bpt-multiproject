@@ -1,0 +1,194 @@
+name: Build, version and tag
+on:
+  push:
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - 'package-lock.json'
+      - 'package.json'
+    branches:
+      - main
+jobs:
+  build_version_tag:
+    name: Build, version and tag
+    runs-on: [self-hosted, ARM64]
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.ADMIN_GITHUB_TOKEN }}
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+      - uses: docker/setup-buildx-action@v2
+        id: buildx
+      - name: Install Carvel YTT
+        run: |
+          curl -L -O https://github.com/vmware-tanzu/carvel-ytt/releases/download/v0.36.0/ytt-linux-arm64
+          chmod +x ytt-linux-arm64
+          sudo mv ytt-linux-arm64 /usr/bin/ytt
+          ytt --version
+      - name: Ensure buildx cache dir exists
+        run: mkdir -p /tmp/docker-cache/buildx-cache-${{ github.repository }}
+      - name: Get next version
+        run: |
+          echo "CUSTOM_ENVIRONMENT=test" >> $GITHUB_ENV
+          NEXT_VERSION_WITHOUT_V=$(npm_config_yes=true npx standard-version --dry-run | head -n 1 | sed -n -e 's/.*bumping version in .* from .* to \(.*\).*/\1/p')
+          echo "NEXT_VERSION_WITHOUT_V=$NEXT_VERSION_WITHOUT_V" >> $GITHUB_ENV
+          echo "NEXT_VERSION=v$NEXT_VERSION_WITHOUT_V" >> $GITHUB_ENV
+      - name: Read project name
+        uses: KJ002/read-yaml@1.5
+        id: project-name-data
+        with:
+          file: './k8s/templates/values.yml'
+          key-path: '["projectName"]'
+      - name: Info new version
+        uses: sarisia/actions-status-discord@v1
+        with:
+          color: 0x334df5
+          noprefix: true
+          title: Building new version
+          description: |
+            Version `${{ env.NEXT_VERSION }}`
+            Project `${{ steps.project-name-data.outputs.data }}`
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          avatar_url: ${{ secrets.DISCORD_AVATAR_URL }}
+          username: 'BinFlow CI / CD'
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+      - name: Create ECR repository if not exists
+        run: ./.github/workflows/create-ecr-repository-if-not-exists.sh ${{ steps.project-name-data.outputs.data }}
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+      - name: Exec standard-version
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          npm_config_yes=true npx standard-version
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/docker-cache/buildx-cache-${{ github.repository }}
+          key: ${{ runner.os }}-${{ github.repository }}-single-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ github.repository }}-single-buildx
+      - name: Setup Kubernetes Tools
+        uses: azure/setup-kubectl@v2.0
+        id: kubernetes-tools
+        with:
+          version: v1.22.8
+      # - run: ln -sf ${{ steps.kubernetes-tools.outputs.kubectl-path }} /usr/bin/kubectl
+      - name: Login kubectl with EKS
+        run: aws eks update-kubeconfig --name ${{ secrets.TEST_K8S_CLUSTER_NAME }} --role-arn ${{ secrets.AWS_EKS_ROLE }}
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          platforms: ${{ secrets.BUILD_PLATFORMS }}
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ steps.project-name-data.outputs.data }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ steps.project-name-data.outputs.data }}:${{ env.NEXT_VERSION }}
+          cache-from: type=local,src=/tmp/docker-cache/buildx-cache-${{ github.repository }}
+          cache-to: type=local,dest=/tmp/docker-cache/buildx-cache-${{ github.repository }}-new
+      - name: Move Docker cache
+        run: |
+          rm -rf /tmp/docker-cache/buildx-cache-${{ github.repository }}
+          mv /tmp/docker-cache/buildx-cache-${{ github.repository }}-new /tmp/docker-cache/buildx-cache-${{ github.repository }}
+      - name: Read resourceType name
+        uses: KJ002/read-yaml@1.5
+        id: resource-type-data
+        with:
+          file: './k8s/templates/values.yml'
+          key-path: '["resourceType"]'
+      - name: Compile k8s templates
+        run: |
+          ./.github/workflows/compile-k8s-templates.sh "${{ env.CUSTOM_ENVIRONMENT }}"
+          K8S_NAMESPACE_NAME=$(./.github/workflows/get-namespace-name.js)
+          echo "K8S_NAMESPACE_NAME=$K8S_NAMESPACE_NAME" >> $GITHUB_ENV
+      - name: Check k8s resources and create if not exists
+        run: ./.github/workflows/create-k8s-if-not-exists.sh "${{ env.CUSTOM_ENVIRONMENT }}"
+      - name: Get repository team ids
+        uses: actions/github-script@v5
+        id: repo-teams
+        with:
+          result-encoding: string
+          github-token: ${{ secrets.ADMIN_GITHUB_TOKEN }}
+          script: |
+            const teamsResponse = await github.rest.repos.listTeams({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            if (teamsResponse.status === 200) {
+              const teams = teamsResponse.data;
+              if (teams && teams.length > 0) {
+                return teams
+                  .map((team) => team.slug)
+                  .join(' ');
+              }
+            }
+            return '';
+      - name: Grant read permissions to Github teams
+        if: steps.repo-teams.outputs.result != ''
+        run: ./.github/workflows/create-k8s-team-roles.sh "${{ env.K8S_NAMESPACE_NAME }}" "${{ steps.repo-teams.outputs.result }}" "${{ github.repository_owner }}"
+      - name: Delete job if exists
+        if: steps.resource-type-data.outputs.data == 'Job'
+        run: ./.github/workflows/remove-job-if-exists.sh "${{ env.K8S_NAMESPACE_NAME }}" "${{ steps.project-name-data.outputs.data }}" "${{ env.CUSTOM_ENVIRONMENT }}"
+      - name: Read CHANGELOG
+        uses: BinPar/read-conventional-commit-changelog@v1
+        id: changelog
+        with:
+          version: '${{ env.NEXT_VERSION }}'
+      - name: Push as test
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          platforms: ${{ secrets.BUILD_PLATFORMS }}
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ steps.project-name-data.outputs.data }}:test
+          cache-from: type=local,src=/tmp/docker-cache/buildx-cache-${{ github.repository }}
+      - name: Redeploy to apply new image
+        if: steps.resource-type-data.outputs.data == 'Deploy'
+        run: ./.github/workflows/redeploy.sh "${{ env.K8S_NAMESPACE_NAME }}" "${{ steps.project-name-data.outputs.data }}" "${{ env.CUSTOM_ENVIRONMENT }}"
+      - name: Update repo
+        run: |
+          git push
+          git push --tags
+          git checkout develop
+          git pull origin develop
+          git merge --strategy-option theirs main
+          git push
+      - name: Notify discord success
+        uses: sarisia/actions-status-discord@v1
+        if: success()
+        with:
+          title: Deploy to `test` environment
+          description: |
+            Version: `${{ env.NEXT_VERSION }}`
+            Arch: `${{ secrets.BUILD_PLATFORMS }}`
+            Project: `${{ steps.project-name-data.outputs.data }}`
+            Successfully built, tagged and deployed to test environment
+            Create release: ${{ github.server_url }}/${{ github.repository }}/releases/new?tag=${{ env.NEXT_VERSION }}
+            CHANGELOG.md and package.json were updated.
+            Current version CHANGELOG:
+            ${{ steps.changelog.outputs.version-changelog }}
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          avatar_url: ${{ secrets.DISCORD_AVATAR_URL }}
+          username: 'BinFlow CI / CD'
+      - name: Notify discord failed or cancelled
+        uses: sarisia/actions-status-discord@v1
+        if: failure() || cancelled()
+        with:
+          title: Deploy to `test` environment
+          description: |
+            Version: `${{ env.NEXT_VERSION }}`
+            Project: `${{ steps.project-name-data.outputs.data }}`
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          avatar_url: ${{ secrets.DISCORD_AVATAR_URL_ERROR }}
+          username: 'BinFlow CI / CD'

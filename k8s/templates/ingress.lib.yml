@@ -1,0 +1,80 @@
+#@ load("@ytt:data", "data")
+#@ load("@ytt:template", "template")
+#@ load("utils.star", "utils")
+
+#@ def getIngress():
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/ssl-passthrough: "false"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    #@ if/end data.values.ingressAnnotations:
+    _: #@ template.replace(data.values.ingressAnnotations)
+  name: #@ utils.ingressName()
+  namespace: #@ utils.namespaceName()
+spec:
+  #@ if data.values.ingressRules:
+  rules: #@ utils.recursiveLookupForStringAndReplace(data.values.ingressRules, "##DEFAULT_SERVICE_NAME", utils.serviceName())
+  #@ else:
+  rules:
+    - host: #@ utils.defaultHostname()
+      http:
+        paths:
+          - backend:
+              service:
+                name: #@ utils.serviceName()
+                port:
+                  number: 80
+            path: /(.*)
+            pathType: ImplementationSpecific
+  #@ end
+  tls:
+    - hosts:
+        #@ if data.values.ingressHosts:
+        #@ for/end host in data.values.ingressHosts:
+        - #@ host
+        #@ else:
+        - #@ utils.defaultHostname()
+        #@ end
+      secretName: #@ utils.certificateName()
+#@ end
+
+#@ def getAdditionalIngresses():
+#@   ingresses = []
+#@   if data.values.additionalIngresses:
+#@     for ingress in data.values.additionalIngresses:
+#@       if not ingress.environment or ingress.environment == data.values.environment:
+#@         annotations = {
+#@           "kubernetes.io/ingress.class": "nginx",
+#@           "cert-manager.io/issuer": "letsencrypt-prod",
+#@           "nginx.ingress.kubernetes.io/rewrite-target": "/$1",
+#@           "nginx.ingress.kubernetes.io/ssl-passthrough": "false",
+#@           "nginx.ingress.kubernetes.io/ssl-redirect": "true",
+#@           "nginx.ingress.kubernetes.io/force-ssl-redirect": "true"
+#@         }
+#@         if ingress.annotations:
+#@           annotations.update(ingress.annotations)
+#@         end
+#@         ingresses.append({
+#@           "apiVersion": "networking.k8s.io/v1",
+#@           "kind": "Ingress",
+#@           "metadata": {
+#@             "name": ingress.name,
+#@             "namespace": utils.namespaceName(),
+#@             "annotations": annotations
+#@           },
+#@           "spec": {
+#@             "rules": ingress.rules,
+#@             "tls": ingress.tls
+#@           }
+#@         })
+#@       end
+#@     end
+#@   end
+#@   return ingresses
+#@ end

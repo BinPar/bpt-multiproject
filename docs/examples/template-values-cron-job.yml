@@ -1,0 +1,34 @@
+#@data/values
+---
+projectName: bpt-node-cron-job
+resourceType: CronJob
+schedule: 15 6 * * *
+hasIngress: False
+useHttp: False
+jobAdditionalConfig:
+  parallelism: 1
+  backoffLimit: 2
+  activeDeadlineSeconds: 23444
+cronJobAdditionalConfig:
+  successfulJobsHistoryLimit: 2
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+additionalDeployEnvSources:
+  - configMapRef:
+      name: config-1
+  - configMapRef:
+      name: config-2
+  - configMapRef:
+      name: config-2
+  - secretRef:
+      name: bi-productive-prod-back
+      optional: false
+configMaps:
+  - name: config-1
+    data:
+      PROP_1: 'asd'
+      PROP_2: 'bcv'
+  - name: config-2
+    data:
+      PROP_2_1: '2_asd'
+      PROP_2_2: '2_bcv'

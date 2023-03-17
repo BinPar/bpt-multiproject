@@ -1,0 +1,146 @@
+name: Tag image on published release
+on:
+  release:
+    types: [released, prereleased]
+jobs:
+  tag_image:
+    name: Tag image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v2
+      - name: Set env
+        run: echo "NEXT_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+      - uses: vmware-tanzu/carvel-setup-action@v1
+        with:
+          only: ytt
+          ytt: '0.36.0'
+      - name: Read project name
+        uses: KJ002/read-yaml@1.5
+        id: project-name-data
+        with:
+          file: './k8s/templates/values.yml'
+          key-path: '["projectName"]'
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+      - name: Setup Kubernetes Tools
+        uses: azure/setup-kubectl@v2.0
+        id: kubernetes-tools
+        with:
+          version: v1.22.8
+      # - run: ln -sf ${{ steps.kubernetes-tools.outputs.kubectl-path }} /usr/bin/kubectl
+      - name: Login kubectl with EKS
+        run: aws eks update-kubeconfig --name ${{ secrets.RELEASE_K8S_CLUSTER_NAME }} --role-arn ${{ secrets.AWS_EKS_ROLE }}
+      - name: Get namespace pre-release
+        if: 'github.event.release.prerelease'
+        run: |
+          ./.github/workflows/compile-k8s-templates.sh "pre-release"
+          K8S_NAMESPACE_NAME=$(./.github/workflows/get-namespace-name.js)
+          echo "K8S_NAMESPACE_NAME=$K8S_NAMESPACE_NAME" >> $GITHUB_ENV
+      - name: Get namespace release
+        if: '!github.event.release.prerelease'
+        run: |
+          ./.github/workflows/compile-k8s-templates.sh "release"
+          K8S_NAMESPACE_NAME=$(./.github/workflows/get-namespace-name.js)
+          echo "K8S_NAMESPACE_NAME=$K8S_NAMESPACE_NAME" >> $GITHUB_ENV
+      - name: Get repository team ids
+        uses: actions/github-script@v5
+        id: repo-teams
+        with:
+          result-encoding: string
+          github-token: ${{ secrets.ADMIN_GITHUB_TOKEN }}
+          script: |
+            const teamsResponse = await github.rest.repos.listTeams({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            if (teamsResponse.status === 200) {
+              const teams = teamsResponse.data;
+              if (teams && teams.length > 0) {
+                return teams
+                  .map((team) => team.slug)
+                  .join(' ');
+              }
+            }
+            return '';
+      - name: Pull version docker image for tag
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ steps.project-name-data.outputs.data }}
+        run: docker pull $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION
+      - name: Tag as pre-release
+        if: 'github.event.release.prerelease'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ steps.project-name-data.outputs.data }}
+        run: |
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION $ECR_REGISTRY/$ECR_REPOSITORY:pre-release
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:pre-release
+          ./.github/workflows/create-k8s-if-not-exists.sh "pre-release"
+          echo "TAG_TYPE=pre-release" >> $GITHUB_ENV
+      - name: Tag as release
+        if: '!github.event.release.prerelease'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ steps.project-name-data.outputs.data }}
+        run: |
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION $ECR_REGISTRY/$ECR_REPOSITORY:release
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:release
+          ./.github/workflows/create-k8s-if-not-exists.sh "release"
+          echo "TAG_TYPE=release" >> $GITHUB_ENV
+      - name: Grant read permissions to Github teams
+        if: steps.repo-teams.outputs.result != ''
+        run: ./.github/workflows/create-k8s-team-roles.sh "${{ env.K8S_NAMESPACE_NAME }}" "${{ steps.repo-teams.outputs.result }}" "${{ github.repository_owner }}"
+      - name: Read resourceType name
+        uses: KJ002/read-yaml@1.5
+        id: resource-type-data
+        with:
+          file: './k8s/templates/values.yml'
+          key-path: '["resourceType"]'
+      - name: Redeploy to apply new image
+        if: steps.resource-type-data.outputs.data == 'Deploy'
+        run: ./.github/workflows/redeploy.sh "${{ env.K8S_NAMESPACE_NAME }}" "${{ steps.project-name-data.outputs.data }}" "${{ env.TAG_TYPE }}"
+      - name: Tag image success
+        uses: sarisia/actions-status-discord@v1
+        if: success()
+        with:
+          title: Tag and deployed to `${{ env.TAG_TYPE }}` environment
+          description: |
+            Version: `${{ env.NEXT_VERSION }}`
+            Project: `${{ steps.project-name-data.outputs.data }}`
+            Successfully tagged as **${{ env.TAG_TYPE }}** and redeployed.
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          avatar_url: ${{ secrets.DISCORD_AVATAR_URL }}
+          username: 'BinFlow CI / CD'
+      - name: Tag image failed
+        uses: sarisia/actions-status-discord@v1
+        if: failure()
+        with:
+          title: Tag and deployed to `${{ env.TAG_TYPE }}` environment
+          description: |
+            Version: `${{ env.NEXT_VERSION }}`
+            Project: `${{ steps.project-name-data.outputs.data }}`
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          avatar_url: ${{ secrets.DISCORD_AVATAR_URL_ERROR }}
+          username: 'BinFlow CI / CD'
+      - name: Tag image cancelled
+        uses: sarisia/actions-status-discord@v1
+        if: cancelled()
+        with:
+          title: Tag and deployed to `${{ env.TAG_TYPE }}` environment
+          description: |
+            Version: `${{ env.NEXT_VERSION }}`
+            Project: `${{ steps.project-name-data.outputs.data }}`
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          avatar_url: ${{ secrets.DISCORD_AVATAR_URL_ERROR }}
+          username: 'BinFlow CI / CD'

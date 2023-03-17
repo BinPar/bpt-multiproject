@@ -1,0 +1,51 @@
+#@ load("@ytt:data", "data")
+#@ load("utils.star", "utils")
+
+#@ def getIssuer():
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt-prod
+  namespace: #@ utils.namespaceName()
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: soporte@binpar.com
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    #@ if data.values.issuerSolvers:
+    solvers: #@ data.values.issuerSolvers
+    #@ else:
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+    #@ end
+#@ end
+
+#@ def getAdditionalIssuers():
+#@   issuers = []
+#@   if data.values.additionalIssuers:
+#@     for issuer in data.values.additionalIssuers:
+#@       if not issuer.environment or issuer.environment == data.values.environment:
+#@         issuers.append({
+#@           "apiVersion": "cert-manager.io/v1",
+#@           "kind": "Issuer",
+#@           "metadata": {
+#@             "name": issuer.name,
+#@             "namespace": utils.namespaceName()
+#@           },
+#@           "spec": {
+#@             "acme": {
+#@               "server": "https://acme-v02.api.letsencrypt.org/directory",
+#@               "email": "soporte@binpar.com",
+#@               "privateKeySecretRef": issuer.privateKeySecretRef,
+#@               "solvers": issuer.solvers
+#@             }
+#@           }
+#@         })
+#@       end
+#@     end
+#@   end
+#@   return issuers
+#@ end

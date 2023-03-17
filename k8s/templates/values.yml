@@ -1,0 +1,6 @@
+#@data/values
+---
+projectName: bpt-node-job
+resourceType: Job
+hasIngress: False
+useHttp: False

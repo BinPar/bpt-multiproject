@@ -1,0 +1,23 @@
+#@ load("@ytt:data", "data")
+#@ load("@ytt:template", "template")
+#@ load("utils.star", "utils")
+
+#@ def getVolumeStorages():
+#@   volumeStorages = []
+#@   if data.values.volumeStorages:
+#@     for volumeStorage in data.values.volumeStorages:
+#@       volumeStorages.append({"apiVersion": "v1", "kind": "PersistentVolume", "metadata": {"name": volumeStorage.name, "namespace": utils.namespaceName()}, "spec": {"storageClassName": volumeStorage.storageClassName, "accessModes": volumeStorage.accessModes, "capacity": volumeStorage.capacity}})
+#@     end
+#@   end
+#@   return volumeStorages
+#@ end
+
+#@ def getVolumeClaims():
+#@   volumeClaims = []
+#@   if data.values.volumeClaims:
+#@     for volumeClaim in data.values.volumeClaims:
+#@       volumeClaims.append({"apiVersion": "v1", "kind": "PersistentVolumeClaim", "metadata": {"name": volumeClaim.name, "namespace": utils.namespaceName()}, "spec": {"storageClassName": volumeClaim.storageClassName, "accessModes": volumeClaim.accessModes, "resources": volumeClaim.resources}})
+#@     end
+#@   end
+#@   return volumeClaims
+#@ end

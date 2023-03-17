@@ -1,0 +1,119 @@
+#@data/values-schema
+---
+projectName: ""
+resourceType: ""
+#@schema/nullable
+namespace: ""
+#@schema/nullable
+hasIngress: True
+#@schema/nullable
+useHttp: True
+defaultRootDomain: "binpar.online"
+productionDomain: ""
+environment: ""
+healthcheckPath: "/healthcheck"
+initialDelaySeconds: 4
+failureThreshold: 2
+timeoutSeconds: 5
+periodSeconds: 60
+baseReplicas: 2
+releaseFactorReplicas: 2.0
+baseRAMRequest: 64
+releaseFactorRAMRequest: 2.0
+baseRAMLimit: 128
+releaseFactorRAMLimit: 2.0
+baseCPURequest: 30
+releaseFactorCPURequest: 1.0
+baseCPULimit: 80
+releaseFactorCPULimit: 2.0
+#@schema/type any=True
+defaultConfig:
+configMaps:
+  - name: ''
+    #@schema/nullable
+    environment: ''
+    #@schema/type any=True
+    data:
+#@schema/type any=True
+ingressAnnotations:
+#@schema/type any=True
+ingressRules:
+#@schema/type any=True
+ingressHosts:
+#@schema/type any=True
+additionalDeployEnv:
+#@schema/type any=True
+additionalDeployEnvSources:
+#@schema/type any=True
+issuerSolvers:
+schedule: ""
+#@schema/type any=True
+cronJobAdditionalConfig:
+cronJobAdditionalConfigByEnvironment:
+  #@schema/type any=True
+  test:
+  #@schema/type any=True
+  pre-release:
+  #@schema/type any=True
+  release:
+#@schema/type any=True
+jobAdditionalConfig:
+jobAdditionalConfigByEnvironment:
+  #@schema/type any=True
+  test:
+  #@schema/type any=True
+  pre-release:
+  #@schema/type any=True
+  release:
+#@schema/type any=True
+podAdditionalConfig:
+podAdditionalConfigByEnvironment:
+  #@schema/type any=True
+  test:
+  #@schema/type any=True
+  pre-release:
+  #@schema/type any=True
+  release:
+#@schema/type any=True
+volumes:
+#!  - name: ''
+#!    persistentVolumeClaim:
+#!      claimName: ''
+#!    mountPath: ''
+#@schema/type any=True
+volumeClaims:
+#!  - name: ''
+#!    storageClassName: gp2
+#!    accessModes:
+#!      - ReadWriteOnce
+#!    resources:
+#!      requests:
+#!        storage: ''
+#@schema/type any=True
+volumeStorages:
+#!  - name: ''
+#!    storageClassName: gp2
+#!    capacity:
+#!      storage: ''
+#!    accessModes:
+#!      - ReadWriteOnce
+useOnlyAdditionalIngresses: False
+additionalIngresses:
+  - name: ''
+    #@schema/nullable
+    environment: ''
+    #@schema/type any=True
+    annotations:
+    #@schema/type any=True
+    rules:
+    #@schema/type any=True
+    tls:
+useOnlyAdditionalIssuers: False
+additionalIssuers:
+  - name: ''
+    #@schema/nullable
+    environment: ''
+    privateKeySecretRef:
+      name: ''
+    #@schema/type any=True
+    solvers:
