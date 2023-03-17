@@ -1,19 +1,19 @@
 #@ load("@ytt:data", "data")
 #@ load("utils.star", "utils")
 
-#@ def getIssuer():
+#@ def getIssuer(project):
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: letsencrypt-prod
-  namespace: #@ utils.namespaceName()
+  namespace: #@ utils.namespaceName(project)
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
     email: soporte@binpar.com
     privateKeySecretRef:
       name: letsencrypt-prod
-    #@ if data.values.issuerSolvers:
+    #@ if data.values.issuerSolvers and project == 'read-garden':
     solvers: #@ data.values.issuerSolvers
     #@ else:
     solvers:

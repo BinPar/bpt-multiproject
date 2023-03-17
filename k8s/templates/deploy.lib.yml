@@ -10,9 +10,10 @@
 #@   return "{}Mi".format(n)
 #@ end
 
-#@ def getPodSpec():
+#@ def getPodSpec(project):
+#@ projectResource = utils.getResourcesForProject(project)
 metadata:
-  labels: #@ utils.defaultLabels("pod")
+  labels: #@ utils.defaultLabels("pod", project)
 spec:
   #@ if data.values.volumes:
   volumes:
@@ -52,40 +53,34 @@ spec:
       ports:
         - containerPort: 8080
           name: main-http
-      readinessProbe:
-        httpGet:
-          path: #@ data.values.healthcheckPath
-          port: 8080
-          scheme: HTTP
-        initialDelaySeconds: #@ data.values.initialDelaySeconds
-        failureThreshold: #@ data.values.failureThreshold
-        timeoutSeconds: #@ data.values.timeoutSeconds
-        periodSeconds: #@ data.values.periodSeconds
+      readinessProbe: #@ data.values.readinessProbe
+      livenessProbe: #@ data.values.livenessProbe
       #@ end
       resources:
         requests:
-          memory: #@ memory(data.values.baseRAMRequest * data.values.releaseFactorRAMRequest) if utils.isRelease() else memory(data.values.baseRAMRequest)
-          cpu: #@ cpu(data.values.baseCPURequest * data.values.releaseFactorCPURequest) if utils.isRelease() else cpu(data.values.baseCPURequest)
+          memory: #@ memory(projectResource.baseRAMRequest * projectResource.releaseFactorRAMRequest) if utils.isRelease() else memory(projectResource.baseRAMRequest)
+          cpu: #@ cpu(projectResource.baseCPURequest * projectResource.releaseFactorCPURequest) if utils.isRelease() else cpu(projectResource.baseCPURequest)
         limits:
-          memory: #@ memory(data.values.baseRAMLimit * data.values.releaseFactorRAMLimit) if utils.isRelease() else memory(data.values.baseRAMLimit)
-          cpu: #@ cpu(data.values.baseCPULimit * data.values.releaseFactorCPULimit) if utils.isRelease() else cpu(data.values.baseCPULimit)
+          memory: #@ memory(projectResource.baseRAMLimit * projectResource.releaseFactorRAMLimit) if utils.isRelease() else memory(projectResource.baseRAMLimit)
+          cpu: #@ cpu(projectResource.baseCPULimit * projectResource.releaseFactorCPULimit) if utils.isRelease() else cpu(projectResource.baseCPULimit)
   #@ if/end data.values.podAdditionalConfig:
   _: #@ template.replace(data.values.podAdditionalConfig)
   #@ if/end data.values.podAdditionalConfigByEnvironment and data.values.podAdditionalConfigByEnvironment[data.values.environment]:
   _: #@ template.replace(data.values.podAdditionalConfigByEnvironment[data.values.environment])
 #@ end
 
-#@ def getDeploy():
+#@ def getDeploy(project):
+#@ projectResource = utils.getResourcesForProject(project)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: #@ utils.deployName()
-  labels: #@ utils.defaultLabels("deploy")
-  namespace: #@ utils.namespaceName()
+  labels: #@ utils.defaultLabels("deploy", project)
+  namespace: #@ utils.namespaceName(project)
 spec:
-  replicas: #@ int(data.values.baseReplicas * data.values.releaseFactorReplicas) if utils.isRelease() else int(data.values.baseReplicas)
-  revisionHistoryLimit: #@ 4 if utils.isRelease() else 2
+  replicas: #@ int(projectResource.baseReplicas * projectResource.releaseFactorReplicas) if utils.isRelease() else int(projectResource.baseReplicas)
+  revisionHistoryLimit: #@ projectResource.baseRevisionHistoryLimit * projectResource.releaseFactorHistoryLimit if utils.isRelease() else projectResource.baseRevisionHistoryLimit
   selector:
-    matchLabels: #@ utils.defaultLabels("pod")
-  template: #@ getPodSpec()
+    matchLabels: #@ utils.defaultLabels("pod", project)
+  template: #@ getPodSpec(project)
 #@ end

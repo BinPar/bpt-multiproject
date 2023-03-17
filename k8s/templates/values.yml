@@ -1,6 +1,77 @@
 #@data/values
 ---
-projectName: bpt-node-job
-resourceType: Job
-hasIngress: False
-useHttp: False
+projects:
+  - bpt-multiproject-i
+  - bpt-multiproject-ii
+namespace: bpt-multiproject
+projectName: bpt-multiproject-template
+testDomains:
+  bpt-multiproject-i: bpt-multi-i.binpar.online
+  bpt-multiproject-ii: bpt-multi-ii-test.binpar.online
+productionDomains:
+  bpt-multiproject-i: bpt-multi-i.binpar.cloud
+  bpt-multiproject-ii: bpt-multi-ii.binpar.cloud
+resourceType: Deploy
+hasIngress: True
+useHttp: True
+resourcesByProject:
+  bpt-multiproject-i:
+    baseReplicas: 2
+    releaseFactorReplicas: 2.0
+    baseRAMRequest: 64
+    releaseFactorRAMRequest: 2.0
+    baseRAMLimit: 128
+    releaseFactorRAMLimit: 2.0
+    baseCPURequest: 30
+    releaseFactorCPURequest: 1.0
+    baseCPULimit: 80
+    releaseFactorCPULimit: 2.0
+  bpt-multiproject-ii:
+    baseReplicas: 2
+    releaseFactorReplicas: 1.0
+    baseRAMRequest: 64
+    releaseFactorRAMRequest: 2.0
+    baseRAMLimit: 256
+    releaseFactorRAMLimit: 1.5
+    baseCPURequest: 30
+    releaseFactorCPURequest: 1.0
+    baseCPULimit: 100
+    releaseFactorCPULimit: 2.0
+readinessProbe:
+  httpGet:
+    path: '/server/health'
+    port: 8080
+    scheme: HTTP
+  initialDelaySeconds: 20
+  failureThreshold: 2
+  timeoutSeconds: 30
+  periodSeconds: 60
+livenessProbe:
+  httpGet:
+    path: '/server/ping'
+    port: 8080
+    scheme: HTTP
+  initialDelaySeconds: 20
+  failureThreshold: 3
+  timeoutSeconds: 15
+  periodSeconds: 30
+additionalDeployEnvSources:
+  - configMapRef:
+      name: config-map-ref
+      optional: false
+  - secretRef:
+      name: secret-ref
+      optional: false
+configMaps:
+  - name: config-map-ref
+    environment: test
+    project: bpt-multiproject-i
+    data:
+      HOST: '0.0.0.0'
+      PORT: '8080'
+  - name: config-map-ref
+    environment: test
+    project: bpt-multiproject-ii
+    data:
+      HOST: '0.0.0.0'
+      PORT: '8080'

@@ -2,7 +2,7 @@
 #@ load("@ytt:template", "template")
 #@ load("utils.star", "utils")
 
-#@ def getIngress():
+#@ def getIngress(project):
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -16,13 +16,13 @@ metadata:
     #@ if/end data.values.ingressAnnotations:
     _: #@ template.replace(data.values.ingressAnnotations)
   name: #@ utils.ingressName()
-  namespace: #@ utils.namespaceName()
+  namespace: #@ utils.namespaceName(project)
 spec:
   #@ if data.values.ingressRules:
   rules: #@ utils.recursiveLookupForStringAndReplace(data.values.ingressRules, "##DEFAULT_SERVICE_NAME", utils.serviceName())
   #@ else:
   rules:
-    - host: #@ utils.defaultHostname()
+    - host: #@ utils.defaultHostname(project)
       http:
         paths:
           - backend:
@@ -39,7 +39,7 @@ spec:
         #@ for/end host in data.values.ingressHosts:
         - #@ host
         #@ else:
-        - #@ utils.defaultHostname()
+        - #@ utils.defaultHostname(project)
         #@ end
       secretName: #@ utils.certificateName()
 #@ end

@@ -3,13 +3,13 @@
 #@ load("utils.star", "utils")
 #@ load("job.lib.yml", "getJobSpec")
 
-#@ def getCronJob():
-apiVersion: batch/v1beta1
+#@ def getCronJob(project):
+apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: #@ utils.cronJobName()
-  labels: #@ utils.defaultLabels("cron-job")
-  namespace: #@ utils.namespaceName()
+  labels: #@ utils.defaultLabels("cron-job", project)
+  namespace: #@ utils.namespaceName(project)
 spec:
   schedule: #@ data.values.schedule
   #@ if/end data.values.cronJobAdditionalConfig:
@@ -18,6 +18,6 @@ spec:
   _: #@ template.replace(data.values.cronJobAdditionalConfigByEnvironment[data.values.environment])
   jobTemplate:
     metadata:
-      labels: #@ utils.defaultLabels("job")
-    spec: #@ getJobSpec()
+      labels: #@ utils.defaultLabels("job", project)
+    spec: #@ getJobSpec(project)
 #@ end

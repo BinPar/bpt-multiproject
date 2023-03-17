@@ -21,14 +21,20 @@ if (!fileContent) {
   process.exit(1);
 }
 
-const namespacePart = fileContent.split('---')[0];
+const namespaceParts = fileContent
+  .split('---')
+  .filter(doc => doc.includes('kind: Namespace'));
 process.stdout.write(
-  namespacePart
-    .split('\n')
-    .map((str) => str.trim())
-    .find((str) => str.startsWith('name:'))
-    .split(':')
-    .map((str) => str.trim())
-    .pop(),
+  namespaceParts
+    .map(doc =>
+      doc
+        .split('\n')
+        .map(str => str.trim())
+        .find(str => str.startsWith('name:'))
+        .split(':')
+        .map(str => str.trim())
+        .pop(),
+    )
+    .join(' '),
 );
 process.exit(0);

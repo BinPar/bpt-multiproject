@@ -20,16 +20,6 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: '16'
-      - uses: docker/setup-buildx-action@v2
-        id: buildx
-      - name: Install Carvel YTT
-        run: |
-          curl -L -O https://github.com/vmware-tanzu/carvel-ytt/releases/download/v0.36.0/ytt-linux-arm64
-          chmod +x ytt-linux-arm64
-          sudo mv ytt-linux-arm64 /usr/bin/ytt
-          ytt --version
-      - name: Ensure buildx cache dir exists
-        run: mkdir -p /tmp/docker-cache/buildx-cache-${{ github.repository }}
       - name: Get next version
         run: |
           echo "CUSTOM_ENVIRONMENT=test" >> $GITHUB_ENV
@@ -70,19 +60,26 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           npm_config_yes=true npx standard-version
+      - name: Install Carvel YTT
+        run: |
+          curl -L -O https://github.com/vmware-tanzu/carvel-ytt/releases/download/v0.36.0/ytt-linux-arm64
+          chmod +x ytt-linux-arm64
+          sudo mv ytt-linux-arm64 /usr/bin/ytt
+          ytt --version
+      - uses: docker/setup-buildx-action@v2
+        id: buildx
       - name: Cache Docker layers
         uses: actions/cache@v2
         with:
-          path: /tmp/docker-cache/buildx-cache-${{ github.repository }}
-          key: ${{ runner.os }}-${{ github.repository }}-single-buildx-${{ github.sha }}
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-single-buildx-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-${{ github.repository }}-single-buildx
+            ${{ runner.os }}-single-buildx
       - name: Setup Kubernetes Tools
         uses: azure/setup-kubectl@v2.0
         id: kubernetes-tools
         with:
           version: v1.22.8
-      # - run: ln -sf ${{ steps.kubernetes-tools.outputs.kubectl-path }} /usr/bin/kubectl
       - name: Login kubectl with EKS
         run: aws eks update-kubeconfig --name ${{ secrets.TEST_K8S_CLUSTER_NAME }} --role-arn ${{ secrets.AWS_EKS_ROLE }}
       - name: Build and push
@@ -94,12 +91,12 @@ jobs:
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ steps.project-name-data.outputs.data }}:latest
             ${{ steps.login-ecr.outputs.registry }}/${{ steps.project-name-data.outputs.data }}:${{ env.NEXT_VERSION }}
-          cache-from: type=local,src=/tmp/docker-cache/buildx-cache-${{ github.repository }}
-          cache-to: type=local,dest=/tmp/docker-cache/buildx-cache-${{ github.repository }}-new
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new
       - name: Move Docker cache
         run: |
-          rm -rf /tmp/docker-cache/buildx-cache-${{ github.repository }}
-          mv /tmp/docker-cache/buildx-cache-${{ github.repository }}-new /tmp/docker-cache/buildx-cache-${{ github.repository }}
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
       - name: Read resourceType name
         uses: KJ002/read-yaml@1.5
         id: resource-type-data
@@ -109,10 +106,8 @@ jobs:
       - name: Compile k8s templates
         run: |
           ./.github/workflows/compile-k8s-templates.sh "${{ env.CUSTOM_ENVIRONMENT }}"
-          K8S_NAMESPACE_NAME=$(./.github/workflows/get-namespace-name.js)
-          echo "K8S_NAMESPACE_NAME=$K8S_NAMESPACE_NAME" >> $GITHUB_ENV
-      - name: Check k8s resources and create if not exists
-        run: ./.github/workflows/create-k8s-if-not-exists.sh "${{ env.CUSTOM_ENVIRONMENT }}"
+          K8S_NAMESPACE_NAMES=$(./.github/workflows/get-namespace-names.js)
+          echo "K8S_NAMESPACE_NAMES=$K8S_NAMESPACE_NAMES" >> $GITHUB_ENV
       - name: Get repository team ids
         uses: actions/github-script@v5
         id: repo-teams
@@ -133,12 +128,14 @@ jobs:
               }
             }
             return '';
-      - name: Grant read permissions to Github teams
+      - name: Grant member to teams
         if: steps.repo-teams.outputs.result != ''
-        run: ./.github/workflows/create-k8s-team-roles.sh "${{ env.K8S_NAMESPACE_NAME }}" "${{ steps.repo-teams.outputs.result }}" "${{ github.repository_owner }}"
+        run: ./.github/workflows/create-k8s-team-roles.sh "${{ env.K8S_NAMESPACE_NAMES }}" "${{ steps.repo-teams.outputs.result }}" "${{ github.repository_owner }}"
       - name: Delete job if exists
         if: steps.resource-type-data.outputs.data == 'Job'
-        run: ./.github/workflows/remove-job-if-exists.sh "${{ env.K8S_NAMESPACE_NAME }}" "${{ steps.project-name-data.outputs.data }}" "${{ env.CUSTOM_ENVIRONMENT }}"
+        run: ./.github/workflows/remove-job-if-exists.sh "${{ env.K8S_NAMESPACE_NAMES }}" "${{ steps.project-name-data.outputs.data }}" "${{ env.CUSTOM_ENVIRONMENT }}"
+      - name: Check k8s resources and create if not exists
+        run: ./.github/workflows/create-k8s-if-not-exists.sh "${{ env.CUSTOM_ENVIRONMENT }}"
       - name: Read CHANGELOG
         uses: BinPar/read-conventional-commit-changelog@v1
         id: changelog
@@ -152,10 +149,10 @@ jobs:
           push: true
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ steps.project-name-data.outputs.data }}:test
-          cache-from: type=local,src=/tmp/docker-cache/buildx-cache-${{ github.repository }}
+          cache-from: type=local,src=/tmp/.buildx-cache
       - name: Redeploy to apply new image
         if: steps.resource-type-data.outputs.data == 'Deploy'
-        run: ./.github/workflows/redeploy.sh "${{ env.K8S_NAMESPACE_NAME }}" "${{ steps.project-name-data.outputs.data }}" "${{ env.CUSTOM_ENVIRONMENT }}"
+        run: ./.github/workflows/redeploy.sh "${{ env.K8S_NAMESPACE_NAMES }}" "${{ steps.project-name-data.outputs.data }}" "${{ env.CUSTOM_ENVIRONMENT }}"
       - name: Update repo
         run: |
           git push
@@ -171,7 +168,6 @@ jobs:
           title: Deploy to `test` environment
           description: |
             Version: `${{ env.NEXT_VERSION }}`
-            Arch: `${{ secrets.BUILD_PLATFORMS }}`
             Project: `${{ steps.project-name-data.outputs.data }}`
             Successfully built, tagged and deployed to test environment
             Create release: ${{ github.server_url }}/${{ github.repository }}/releases/new?tag=${{ env.NEXT_VERSION }}

@@ -6,20 +6,17 @@
 #@ load("service.lib.yml", "getService")
 #@ load("ingress.lib.yml", "getIngress")
 #@ load("issuer.lib.yml", "getIssuer")
-#@ load("ingress.lib.yml", "getIngress", "getAdditionalIngresses")
-#@ load("issuer.lib.yml", "getIssuer", "getAdditionalIssuers")
 #@ load("volumes.lib.yml", "getVolumeStorages", "getVolumeClaims")
 #@ load("conf-map.lib.yml", "getDefaultConfigMap", "getValuesConfigMap")
 
---- #@ getNamespace()
+#@ for project in data.values.projects:
+--- #@ getNamespace(project)
 #@ if data.values.hasIngress:
-#@   if/end not data.values.useOnlyAdditionalIssuers:
----   #@ getIssuer()
-#@   if/end not data.values.useOnlyAdditionalIngresses:
----   #@ getIngress()
+--- #@ getIssuer(project)
+--- #@ getIngress(project)
 #@ end
 #@ if data.values.useHttp:
---- #@ getService()
+--- #@ getService(project)
 #@ end
 #@ volumeStorages = getVolumeStorages()
 #@ for/end volumeStorage in volumeStorages:
@@ -28,19 +25,14 @@
 #@ for/end volumeClaim in volumeClaims:
 --- #@ volumeClaim
 #@ if data.values.resourceType == "Deploy":
---- #@ getDeploy()
+--- #@ getDeploy(project)
 #@ elif data.values.resourceType == "Job":
---- #@ getJob()
+--- #@ getJob(project)
 #@ elif data.values.resourceType == "CronJob":
---- #@ getCronJob()
+--- #@ getCronJob(project)
 #@ end
---- #@ getDefaultConfigMap()
-#@ ingresses = getAdditionalIngresses()
-#@ for/end ingress in ingresses:
---- #@ ingress
-#@ issuers = getAdditionalIssuers()
-#@ for/end issuer in issuers:
---- #@ issuer
-#@ configs = getValuesConfigMap()
+--- #@ getDefaultConfigMap(project)
+#@ configs = getValuesConfigMap(project)
 #@ for/end config in configs:
 --- #@ config
+#@ end

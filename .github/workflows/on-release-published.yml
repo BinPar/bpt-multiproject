@@ -5,7 +5,7 @@ on:
 jobs:
   tag_image:
     name: Tag image
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ARM64]
     steps:
       - name: Check out the repo
         uses: actions/checkout@v2
@@ -14,10 +14,12 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: '16'
-      - uses: vmware-tanzu/carvel-setup-action@v1
-        with:
-          only: ytt
-          ytt: '0.36.0'
+      - name: Install Carvel YTT
+        run: |
+          curl -L -O https://github.com/vmware-tanzu/carvel-ytt/releases/download/v0.36.0/ytt-linux-arm64
+          chmod +x ytt-linux-arm64
+          sudo mv ytt-linux-arm64 /usr/bin/ytt
+          ytt --version
       - name: Read project name
         uses: KJ002/read-yaml@1.5
         id: project-name-data
@@ -41,38 +43,6 @@ jobs:
       # - run: ln -sf ${{ steps.kubernetes-tools.outputs.kubectl-path }} /usr/bin/kubectl
       - name: Login kubectl with EKS
         run: aws eks update-kubeconfig --name ${{ secrets.RELEASE_K8S_CLUSTER_NAME }} --role-arn ${{ secrets.AWS_EKS_ROLE }}
-      - name: Get namespace pre-release
-        if: 'github.event.release.prerelease'
-        run: |
-          ./.github/workflows/compile-k8s-templates.sh "pre-release"
-          K8S_NAMESPACE_NAME=$(./.github/workflows/get-namespace-name.js)
-          echo "K8S_NAMESPACE_NAME=$K8S_NAMESPACE_NAME" >> $GITHUB_ENV
-      - name: Get namespace release
-        if: '!github.event.release.prerelease'
-        run: |
-          ./.github/workflows/compile-k8s-templates.sh "release"
-          K8S_NAMESPACE_NAME=$(./.github/workflows/get-namespace-name.js)
-          echo "K8S_NAMESPACE_NAME=$K8S_NAMESPACE_NAME" >> $GITHUB_ENV
-      - name: Get repository team ids
-        uses: actions/github-script@v5
-        id: repo-teams
-        with:
-          result-encoding: string
-          github-token: ${{ secrets.ADMIN_GITHUB_TOKEN }}
-          script: |
-            const teamsResponse = await github.rest.repos.listTeams({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            if (teamsResponse.status === 200) {
-              const teams = teamsResponse.data;
-              if (teams && teams.length > 0) {
-                return teams
-                  .map((team) => team.slug)
-                  .join(' ');
-              }
-            }
-            return '';
       - name: Pull version docker image for tag
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -86,7 +56,10 @@ jobs:
         run: |
           docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION $ECR_REGISTRY/$ECR_REPOSITORY:pre-release
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:pre-release
+          ./.github/workflows/compile-k8s-templates.sh "pre-release"
           ./.github/workflows/create-k8s-if-not-exists.sh "pre-release"
+          K8S_NAMESPACE_NAMES=$(./.github/workflows/get-namespace-names.js)
+          echo "K8S_NAMESPACE_NAMES=$K8S_NAMESPACE_NAMES" >> $GITHUB_ENV
           echo "TAG_TYPE=pre-release" >> $GITHUB_ENV
       - name: Tag as release
         if: '!github.event.release.prerelease'
@@ -96,11 +69,11 @@ jobs:
         run: |
           docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$NEXT_VERSION $ECR_REGISTRY/$ECR_REPOSITORY:release
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:release
+          ./.github/workflows/compile-k8s-templates.sh "release"
           ./.github/workflows/create-k8s-if-not-exists.sh "release"
+          K8S_NAMESPACE_NAMES=$(./.github/workflows/get-namespace-names.js)
+          echo "K8S_NAMESPACE_NAMES=$K8S_NAMESPACE_NAMES" >> $GITHUB_ENV
           echo "TAG_TYPE=release" >> $GITHUB_ENV
-      - name: Grant read permissions to Github teams
-        if: steps.repo-teams.outputs.result != ''
-        run: ./.github/workflows/create-k8s-team-roles.sh "${{ env.K8S_NAMESPACE_NAME }}" "${{ steps.repo-teams.outputs.result }}" "${{ github.repository_owner }}"
       - name: Read resourceType name
         uses: KJ002/read-yaml@1.5
         id: resource-type-data
@@ -109,7 +82,7 @@ jobs:
           key-path: '["resourceType"]'
       - name: Redeploy to apply new image
         if: steps.resource-type-data.outputs.data == 'Deploy'
-        run: ./.github/workflows/redeploy.sh "${{ env.K8S_NAMESPACE_NAME }}" "${{ steps.project-name-data.outputs.data }}" "${{ env.TAG_TYPE }}"
+        run: ./.github/workflows/redeploy.sh "${{ env.K8S_NAMESPACE_NAMES }}" "${{ steps.project-name-data.outputs.data }}" "${{ env.TAG_TYPE }}"
       - name: Tag image success
         uses: sarisia/actions-status-discord@v1
         if: success()

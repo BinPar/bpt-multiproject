@@ -24,12 +24,14 @@ if data.values.useHttp == None:
   assert.fail("useHttp should be specify")
 end
 
-def namespaceName():
-  if data.values.namespace:
-    return data.values.namespace+"-"+data.values.environment
-  else:
-    return data.values.projectName+"-"+data.values.environment
+def namespaceName(project):
+  if project == "read-garden":
+    return project+"-"+data.values.environment
   end
+  if data.values.namespace:
+    return data.values.namespace+"-"+project+"-"+data.values.environment
+  end
+  return data.values.projectName+"-"+project+"-"+data.values.environment
 end
 
 def deployName():
@@ -47,7 +49,9 @@ end
 def serviceName():
   return "service-"+data.values.projectName
 end
-
+def externalServiceName(service):
+  return "service-"+service
+end
 def ingressName():
   return "ingress-"+data.values.projectName+"-"+data.values.environment
 end
@@ -68,19 +72,38 @@ def isRelease():
   return data.values.environment == "release"
 end
 
-def defaultLabels(instance):
-  return { 'app.kubernetes.io/name': data.values.projectName, 'app.kubernetes.io/instance': instance, 'app.kubernetes.io/environment': data.values.environment }
+def isTest():
+  return data.values.environment == "test"
 end
 
-def defaultHostname():
+def defaultLabels(instance, project):
+  return { 'app.kubernetes.io/name': data.values.projectName, 'app.kubernetes.io/instance': instance, 'app.kubernetes.io/environment': data.values.environment, 'app.kubernetes.io/project': project }
+end
+
+def defaultHostname(project):
+  prefix = project
+  if project == "read-garden":
+    prefix = "*"
+  end
   if isRelease():
+    productionDomains = struct.decode(data.values.productionDomains)
+    if data.values.productionDomains and productionDomains.get(project):
+      return productionDomains[project]
+    end
     if data.values.productionDomain:
-      return data.values.productionDomain
+      return prefix+data.values.productionDomain
     else:
-      return data.values.projectName+"." + data.values.defaultRootDomain
+      return prefix+"." + data.values.defaultRootDomain
     end
   else:
-    return data.values.projectName+"-"+data.values.environment+"." + data.values.defaultRootDomain
+    testDomains = struct.decode(data.values.testDomains)
+    if isTest() and testDomains and testDomains.get(project):
+      return testDomains[project]
+    end
+    if project == "read-garden":
+      return prefix+"."+data.values.environment+"." + data.values.defaultRootDomain
+    end
+    return prefix+"-"+data.values.environment+"." + data.values.defaultRootDomain
   end
 end
 
@@ -114,4 +137,13 @@ def recursiveLookupForStringAndReplace(obj, lookupString, newValue):
   return obj
 end
 
-utils = struct.make(recursiveLookupForStringAndReplace=recursiveLookupForStringAndReplace, cronJobName=cronJobName, jobName=jobName, replaceDefaultServiceNameInRules=replaceDefaultServiceNameInRules, certificateName=certificateName, defaultConfigMapName=defaultConfigMapName, imageName=imageName, isRelease=isRelease, deployName=deployName, serviceName=serviceName, ingressName=ingressName, defaultLabels=defaultLabels, defaultHostname=defaultHostname, namespaceName=namespaceName)
+def getResourcesForProject(project):
+  resourcesByProject = struct.decode(data.values.resourcesByProject)
+  result = dict(baseReplicas=2, releaseFactorReplicas=2.0, baseRAMRequest=64, releaseFactorRAMRequest=2.0, baseRAMLimit=128, releaseFactorRAMLimit=2.0, baseCPURequest=30, releaseFactorCPURequest=1.0, baseCPULimit=80, releaseFactorCPULimit=2.0, baseRevisionHistoryLimit=1, releaseFactorHistoryLimit=3.0)
+  if resourcesByProject and resourcesByProject.get(project):
+    result.update(resourcesByProject[project])
+  end
+  return struct.encode(result)
+end
+
+utils = struct.make(recursiveLookupForStringAndReplace=recursiveLookupForStringAndReplace, cronJobName=cronJobName, jobName=jobName, replaceDefaultServiceNameInRules=replaceDefaultServiceNameInRules, certificateName=certificateName, defaultConfigMapName=defaultConfigMapName, imageName=imageName, isRelease=isRelease, deployName=deployName, serviceName=serviceName, externalServiceName=externalServiceName, ingressName=ingressName, defaultLabels=defaultLabels, defaultHostname=defaultHostname, namespaceName=namespaceName, getResourcesForProject=getResourcesForProject)

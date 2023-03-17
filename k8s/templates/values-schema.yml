@@ -1,6 +1,8 @@
 #@data/values-schema
 ---
-projectName: ""
+projects:
+  - ''
+projectName: ''
 resourceType: ""
 #@schema/nullable
 namespace: ""
@@ -8,30 +10,39 @@ namespace: ""
 hasIngress: True
 #@schema/nullable
 useHttp: True
-defaultRootDomain: "binpar.online"
-productionDomain: ""
+defaultRootDomain: 'binpar.online'
+#@schema/type any=True
+productionDomains:
+#@schema/type any=True
+testDomains:
 environment: ""
-healthcheckPath: "/healthcheck"
-initialDelaySeconds: 4
-failureThreshold: 2
-timeoutSeconds: 5
-periodSeconds: 60
-baseReplicas: 2
-releaseFactorReplicas: 2.0
-baseRAMRequest: 64
-releaseFactorRAMRequest: 2.0
-baseRAMLimit: 128
-releaseFactorRAMLimit: 2.0
-baseCPURequest: 30
-releaseFactorCPURequest: 1.0
-baseCPULimit: 80
-releaseFactorCPULimit: 2.0
+readinessProbe:
+  httpGet:
+    path: '/health'
+    port: 8080
+    scheme: HTTP
+  initialDelaySeconds: 3
+  failureThreshold: 2
+  timeoutSeconds: 4
+  periodSeconds: 30
+livenessProbe:
+  httpGet:
+    path: '/ping'
+    port: 8080
+    scheme: HTTP
+  initialDelaySeconds: 30
+  failureThreshold: 3
+  timeoutSeconds: 5
+  periodSeconds: 30
+#@schema/type any=True
+resourcesByProject:
 #@schema/type any=True
 defaultConfig:
 configMaps:
   - name: ''
     #@schema/nullable
     environment: ''
+    project: ''
     #@schema/type any=True
     data:
 #@schema/type any=True
